@@ -7,34 +7,30 @@ import pandas as pd
 import uuid
 from langchain.text_splitter import CharacterTextSplitter
 from sentence_transformers import SentenceTransformer
-import sqlite3
 import numpy as np
+import json
+from google.cloud import bigquery
 
 class Tools:
-    def __init__(self, chunk_size: int, overlap: int, embedding_model: str = "all-MiniLM-L6-v2", db_path: str = "embeddings.db"):
+    def __init__(self, chunk_size: int, overlap: int, embedding_model: str = "all-MiniLM-L6-v2", 
+                 project_id: str = "flaviosrag ", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks"):
         self.chunk_size = chunk_size
         self.overlap = overlap
-        self.db_path = db_path
-        self.logger = self.__setup_logger()
+        self.project_id = project_id
+        self.dataset_id = dataset_id
+        self.table_id = table_id
+        self.client = bigquery.Client()
         self.embedder = SentenceTransformer(embedding_model)
-        self.__setup_db()
 
 
     def __setup_logger(self):
         logger = logging.getLogger("udf_logger")
         return logger
 
-
-    def __setup_db(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS embeddings (
-            id TEXT PRIMARY KEY,
-            vector BLOB)
-        """)
-        conn.commit()
-        conn.close()
+    
+    def get_table_ref(self):
+        """Returns the full BigQuery table reference."""
+        return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
 
 
     def pdf_reader(self, file_path: str) -> Tuple[Optional[str], Optional[List[int]]]:
@@ -77,6 +73,7 @@ class Tools:
 
         return text, page_breaks
 
+
     def text_chunker(self, text: str) -> pd.DataFrame:
         self.logger.info("Chunking text.")
         text = re.sub(r"\s+", " ", text).strip()
@@ -98,18 +95,26 @@ class Tools:
 
         return df
 
-    def push_df_to_db(self, df: pd.DataFrame):
-        """Stores a DataFrame of text chunks and embeddings in SQLite."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        for _, row in df.iterrows():
-            # Convert embedding array to bytes
-            vector_bytes = np.array(row["embedding"], dtype=np.float32).tobytes()
-            cursor.execute("INSERT INTO embeddings (id, vector) VALUES (?, ?)", (row["uuid"], vector_bytes))
-        
-        conn.commit()
-        conn.close()
+
+    def push_df_to_db(self, df: pd.DataFrame, document_name: str):
+        """Stores document chunks and embeddings in BigQuery."""
+        table_ref = self.get_table_ref()
+
+        rows = [
+            {
+                "uuid": row["uuid"],
+                "chunk": row["chunk"],
+                "vector": json.dumps(row["embedding"]),  # Store embeddings as JSON
+                "document_name": document_name  # New field
+            }
+            for _, row in df.iterrows()
+        ]
+
+        errors = self.client.insert_rows_json(table_ref, rows)
+        if errors:
+            print(f"Failed to insert rows: {errors}")
+        else:
+            print(f"Successfully inserted {len(rows)} rows into BigQuery.")
 
 
 

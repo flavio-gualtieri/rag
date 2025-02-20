@@ -1,19 +1,19 @@
 import logging
-import random
-import re
+from google.cloud import bigquery
 import numpy as np
 import sqlite3
 from sklearn.metrics.pairwise import cosine_similarity
 from tools import Tools  # Assuming the Tools class handles PDF reading, chunking, and embedding storage
 import google.generativeai as genai
+import json
 
 class RAG:
-    def __init__(self, tools: Tools, chunks=20, window=10, db_path="embeddings.db"):
+    def __init__(self, tools: Tools, chunks=20, window=10):
         self.gemini_api_ley = self.__get_api_key()
         self.chunks = chunks
         self.window = window
         self.tools = tools
-        self.db_path = db_path
+        self.client = bigquery.Client()
         self.logger = self.__init_logger()
         self.model_name = "gemini-1.5-flash"
         
@@ -39,34 +39,44 @@ class RAG:
             return chunk_df
         return None
 
-    def retrieve_relevant_chunks(self, question: str, top_k=5):
+    def retrieve_relevant_chunks(self, question: str, top_k=5, document_name: str = None):
         question_vector = self.tools.embedder.encode([question])[0]
-        
-        # Retrieve stored embeddings
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, vector FROM embeddings")
-        data = cursor.fetchall()
-        conn.close()
 
-        # Ensure data is correctly converted from binary
-        embeddings = {}
-        for row in data:
-            if row[1] is not None:
-                embeddings[row[0]] = np.frombuffer(row[1], dtype=np.float32)
+        # Query BigQuery for stored document chunks
+        query = f"""
+        SELECT uuid, chunk, vector, document_name
+        FROM `{self.tools.get_table_ref()}`
+        """
+        if document_name:
+            query += f" WHERE document_name = '{document_name}'"
+
+        results = self.client.query(query).result()
+
+        embeddings = []
+        chunk_texts = []
+        chunk_ids = []
+
+        for row in results:
+            try:
+                vector = np.array(json.loads(row["vector"]), dtype=np.float32)  # Convert JSON string to NumPy array
+                embeddings.append(vector)
+                chunk_texts.append(row["chunk"])
+                chunk_ids.append(row["uuid"])
+            except Exception as e:
+                print(f"Error processing row {row['uuid']}: {e}")
 
         if not embeddings:
             return []
 
-        chunk_ids, vectors = zip(*embeddings.items())
-        vectors = np.stack(vectors)  # Ensures correct shape
+        embeddings = np.stack(embeddings)  # Convert list of arrays into a 2D NumPy array
 
         # Compute cosine similarity
-        similarities = cosine_similarity([question_vector], vectors)[0]
+        similarities = cosine_similarity([question_vector], embeddings)[0]
         top_indices = similarities.argsort()[-top_k:][::-1]
 
-        relevant_chunks = [(chunk_ids[i], similarities[i]) for i in top_indices]
+        relevant_chunks = [(chunk_ids[i], chunk_texts[i], similarities[i]) for i in top_indices]
         return relevant_chunks
+
 
 
     def generate_answer(self, question: str):
