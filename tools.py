@@ -19,9 +19,11 @@ class Tools:
         self.embedder = SentenceTransformer(embedding_model)
         self.__setup_db()
 
+
     def __setup_logger(self):
         logger = logging.getLogger("udf_logger")
         return logger
+
 
     def __setup_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -33,6 +35,7 @@ class Tools:
         """)
         conn.commit()
         conn.close()
+
 
     def pdf_reader(self, file_path: str) -> Tuple[Optional[str], Optional[List[int]]]:
         self.logger.info(f"Opening {file_path}.")
@@ -96,15 +99,19 @@ class Tools:
         return df
 
     def push_df_to_db(self, df: pd.DataFrame):
+        """Stores a DataFrame of text chunks and embeddings in SQLite."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         for _, row in df.iterrows():
-            vector_bytes = row["chunk"].encode("utf-8")  # Convert text to bytes
+            # Convert embedding array to bytes
+            vector_bytes = np.array(row["embedding"], dtype=np.float32).tobytes()
             cursor.execute("INSERT INTO embeddings (id, vector) VALUES (?, ?)", (row["uuid"], vector_bytes))
         
         conn.commit()
         conn.close()
+
+
 
 # Example usage
 tools = Tools(chunk_size=800, overlap=100)
