@@ -19,7 +19,9 @@ if uploaded_file:
         file_path = tmp_file.name
     
     st.write("Processing PDF...")
-    chunk_df = rag.process_pdf(file_path)
+    document_name = os.path.basename(file_path)  # Use filename as document name
+    chunk_df = rag.process_pdf(file_path, document_name)
+
     if chunk_df is not None:
         st.success("PDF processed successfully! You can now ask questions.")
     else:

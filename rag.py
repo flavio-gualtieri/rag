@@ -9,7 +9,7 @@ import json
 
 class RAG:
     def __init__(self, tools: Tools, chunks=20, window=10):
-        self.gemini_api_ley = self.__get_api_key()
+        self.gemini_api_key = self.__get_api_key()
         self.chunks = chunks
         self.window = window
         self.tools = tools
@@ -31,11 +31,11 @@ class RAG:
                 if line.startswith("GEMINI_API_KEY="):
                     return line.strip().split("=")[1]
 
-    def process_pdf(self, file_path: str):
+    def process_pdf(self, file_path: str, document_name: str):
         text, _ = self.tools.pdf_reader(file_path)
         if text:
             chunk_df = self.tools.text_chunker(text)
-            self.tools.push_df_to_db(chunk_df)
+            self.tools.push_df_to_db(chunk_df, document_name)
             return chunk_df
         return None
 

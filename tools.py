@@ -13,7 +13,7 @@ from google.cloud import bigquery
 
 class Tools:
     def __init__(self, chunk_size: int, overlap: int, embedding_model: str = "all-MiniLM-L6-v2", 
-                 project_id: str = "flaviosrag ", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks"):
+                 project_id: str = "flaviosrag", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks"):
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.project_id = project_id
@@ -21,6 +21,7 @@ class Tools:
         self.table_id = table_id
         self.client = bigquery.Client()
         self.embedder = SentenceTransformer(embedding_model)
+        self.logger = self.__setup_logger()
 
 
     def __setup_logger(self):
