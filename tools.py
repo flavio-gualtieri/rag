@@ -101,10 +101,10 @@ class Tools:
     def push_df_to_db(self, df: pd.DataFrame, document_name: str):
         rows = [
             {
-                "uuid": row["uuid"],
-                "chunk": row["chunk"],
-                "vector": json.dumps(row["embedding"]),  # Store embeddings as JSON
-                "document_name": row[document_name]  # New field
+                "UUID": row["uuid"],
+                "CHUNK": row["chunk"],
+                "EMBEDDING": json.dumps(row["embedding"]),  # Store embeddings as JSON
+                "DOCUMENT_NAME": row["document_name"]  # New field
             }
             for _, row in df.iterrows()
         ]
@@ -114,3 +114,29 @@ class Tools:
             print(f"Failed to insert rows: {errors}")
         else:
             print(f"Successfully inserted {len(rows)} rows into BigQuery.")
+
+
+""" import os
+
+# Define file path (replace 'path' with your actual PDF file path)
+file_path = "/Users/flaviogualtieri/Downloads/test1.pdf"
+document_name = os.path.basename(file_path)
+
+# Initialize the Tools object
+tools = Tools(chunk_size=500, overlap=100)
+
+# Step 1: Read the PDF
+text, page_breaks = tools.pdf_reader(file_path)
+if text is None:
+    print("Failed to extract text from PDF.")
+    exit()
+
+# Step 2: Chunk the text
+df_chunks = tools.text_chunker(text, document_name)
+if df_chunks.empty:
+    print("Failed to chunk text.")
+    exit()
+
+# Step 3: Push to BigQuery
+tools.push_df_to_db(df_chunks, document_name)
+ """
