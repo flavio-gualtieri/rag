@@ -10,19 +10,22 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 import json
 from google.cloud import bigquery
+import google.generativeai as genai
 
 class Tools:
     def __init__(self, chunk_size: int, overlap: int, embedding_model: str = "all-MiniLM-L6-v2", 
                  project_id: str = "flaviosrag", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks"):
+        self.gemini_api_key = self.__get_api_key()
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.project_id = project_id
         self.dataset_id = dataset_id
         self.table_id = table_id
         self.client = bigquery.Client()
-        self.embedder = SentenceTransformer(embedding_model)
         self.logger = self.__setup_logger()
         self.table_ref = self.__get_table_ref()
+
+        genai.configure(api_key = self.gemini_api_key)
 
 
     def __setup_logger(self) -> logging.Logger:
@@ -32,6 +35,14 @@ class Tools:
 
     def __get_table_ref(self) -> str:
         return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
+
+
+    def __get_api_key(self, filepath: str = "config.txt") -> str:
+        with open(filepath, "r") as file:
+            for line in file:
+                if line.startswith("GEMINI_API_KEY="):
+                    return line.strip().split("=")[1]
+
 
     def document_exists(self, document_name: str) -> bool:
         query = f"""
@@ -96,17 +107,25 @@ class Tools:
         return text, page_breaks
 
 
+    def get_embedding(self, text: str) -> List[float]:
+        try:
+            response = genai.embed_content(model = "models/embedding-001", content = text)
+            return response["embedding"] if "embedding" in response else []
+        except Exception as e:
+            self.logger.error(f"Failed to fetch embedding: {e}")
+            return []
+
+
     def text_chunker(self, text: str, document_name: str) -> pd.DataFrame:
-        self.logger.info("Chunking text.")
+        self.logger.info("Chunking text")
         text = re.sub(r"\s+", " ", text).strip()
 
         splitter = CharacterTextSplitter(separator = " ", chunk_size=self.chunk_size, chunk_overlap=self.overlap)
         chunks = splitter.split_text(text)
-
         self.logger.info(f"Text split into {len(chunks)} chunks.")
 
         # Compute embeddings
-        embeddings = self.embedder.encode(chunks).tolist()
+        embeddings = [self.get_embedding(chunk) for chunk in chunks]
 
         # Create DataFrame
         df = pd.DataFrame({

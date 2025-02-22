@@ -83,7 +83,7 @@ class RAG:
 
 
     def retrieve_relevant_chunks(self, question: str, document_name: str, top_k: int = 5) -> list[tuple[str, str, float]]:
-        question_vector = self.tools.embedder.encode([question])[0]
+        question_vector = self.tools.get_embedding(question)
 
         # Query BigQuery for stored document chunks
         try:
@@ -121,7 +121,7 @@ class RAG:
             top_indices = similarities.argsort()[-top_k:][::-1]
             self.logger.info("Computing cosine similarity")
         except Exception as e:
-            self.loggr.warning(f"Failed to compute cosine similarity: {e}")
+            self.logger.warning(f"Failed to compute cosine similarity: {e}")
         
         try:
             relevant_chunks = [(chunk_ids[i], chunk_texts[i], similarities[i]) for i in top_indices]
@@ -167,7 +167,7 @@ tools = Tools(chunk_size=500, overlap=100)
 rag = RAG(tools)
 
 # Define file path and document name
-file_path = "/Users/flaviogualtieri/Downloads/fastfacts-what-is-climate-change2.pdf"  # Replace with actual file path
+file_path = "/Users/flaviogualtieri/Downloads/fastfacts-what-is-climate-change3.pdf"  # Replace with actual file path
 document_name = os.path.basename(file_path)
 
 # Process the PDF and store chunks
