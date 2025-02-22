@@ -22,17 +22,38 @@ class RAG:
         genai.configure(api_key=self.gemini_api_key)
         self.model = genai.GenerativeModel(self.model_name)
 
-    def __init_logger(self):
+
+    def __init_logger(self) -> logging.Logger:
         logger = logging.getLogger("RAG_LOGGER")
         return logger
 
-    def __get_api_key(self, filepath="config.txt"):
+
+    def __get_api_key(self, filepath: str = "config.txt") -> str:
         with open(filepath, "r") as file:
             for line in file:
                 if line.startswith("GEMINI_API_KEY="):
                     return line.strip().split("=")[1]
 
-    def process_pdf(self, file_path: str, document_name: str) -> pd.DataFrame:
+
+    def __create_prompt(self, question: str, context_chunks: list[str]) -> str:
+        context = "\n\n".join(context_chunks)
+        return f"""
+        ### TASK: You are an AI assistant tasked with providing informed responses to questions regarding a documet.
+        Answer based on the context provided.
+
+        ###RESPONSE FORMAT: Respond in clear, full sentences that refer to the context provided.
+
+        ### WARNING: If you are unable to provide an accurate answer, say so. 
+        Do not hallucinate answers if you cannto respond accureately.
+
+
+        ### Context:{context}
+        ### Question: {question}
+        ### Answer:
+        """
+
+
+    def process_pdf(self, file_path: str, document_name: str) -> pd.DataFrame | None:
         try:
             text, _ = self.tools.pdf_reader(file_path)
             self.logger.info("Extracted text")
@@ -40,7 +61,7 @@ class RAG:
             self.logger.warning(f"Failed to obtain text from pdf: {e}")
         if text:
             try:
-                chunk_df = self.tools.text_chunker(text)
+                chunk_df = self.tools.text_chunker(text, document_name)
                 self.logger.info("Chunked and embedded")
             except Exception as e:
                 self.logger.warning(f"Failed to chunk and embed:{e}")
@@ -52,18 +73,23 @@ class RAG:
             return chunk_df
         return None
 
-    def retrieve_relevant_chunks(self, question: str, top_k=5, document_name: str = None):
+
+    def retrieve_relevant_chunks(self, question: str, top_k: int = 5, document_name: str | None = None) -> list[tuple[str, str, float]]:
         question_vector = self.tools.embedder.encode([question])[0]
 
         # Query BigQuery for stored document chunks
-        query = f"""
-        SELECT uuid, chunk, vector, document_name
-        FROM `{self.tools.get_table_ref()}`
-        """
-        if document_name:
-            query += f" WHERE document_name = '{document_name}'"
+        try:
+            query = f"""
+            SELECT UUID, CHUNK, EMBEDDING, DOCUMENT_NAME
+            FROM `{self.tools.table_ref}`
+            """
+            if document_name:
+                query += f" WHERE DOCUMENT_NAME = '{document_name}'"
 
-        results = self.client.query(query).result()
+            results = self.client.query(query).result()
+            self.logger.info("Downloaded data")
+        except Exception as e:
+            self.logger.warning(f"Failed to download data from table: {e}")
 
         embeddings = []
         chunk_texts = []
@@ -71,55 +97,80 @@ class RAG:
 
         for row in results:
             try:
-                vector = np.array(json.loads(row["vector"]), dtype=np.float32)  # Convert JSON string to NumPy array
+                vector = np.array(row["EMBEDDING"], dtype=np.float32)  # Convert JSON string to NumPy array
                 embeddings.append(vector)
-                chunk_texts.append(row["chunk"])
-                chunk_ids.append(row["uuid"])
+                chunk_texts.append(row["CHUNK"])
+                chunk_ids.append(row["UUID"])
             except Exception as e:
-                print(f"Error processing row {row['uuid']}: {e}")
+                print(f"Error processing row {row['UUID']}: {e}")
 
         if not embeddings:
             return []
 
         embeddings = np.stack(embeddings)  # Convert list of arrays into a 2D NumPy array
 
-        # Compute cosine similarity
-        similarities = cosine_similarity([question_vector], embeddings)[0]
-        top_indices = similarities.argsort()[-top_k:][::-1]
+        try:
+            similarities = cosine_similarity([question_vector], embeddings)[0]
+            top_indices = similarities.argsort()[-top_k:][::-1]
+            self.logger.info("Computing cosine similarity")
+        except Exception as e:
+            self.loggr.warning(f"Failed to compute cosine similarity: {e}")
+        
+        try:
+            relevant_chunks = [(chunk_ids[i], chunk_texts[i], similarities[i]) for i in top_indices]
+            self.logger.info("Obtained relevant chunks")
+        except Exception as e:
+            self.logger.warning(f"Failed to retrieve relevant chunks: {e}")
 
-        relevant_chunks = [(chunk_ids[i], chunk_texts[i], similarities[i]) for i in top_indices]
         return relevant_chunks
 
 
+    def rephrase_question(self, question: str) -> str:
+        try:
+            response = self.model.generate_content(f"Rephrase the following question for clarity: {question}")
+            self.logger.info("Rephrased question")
+        except Exception as e:
+            self.logger.warning(f"Failed to rephrase question: {e}")
 
-    def generate_answer(self, question: str):
-        self.logger.info("Rephrasing question using LLM.")
+        return response.candidates[0].content.parts[0].text.strip()
+
+    
+    def generate_text(self, prompt: str) -> str:
+        response = self.model.generate_content(prompt)
+        return response.text.strip()
+
+
+    def generate_answer(self, question: str) -> str:
+        self.logger.info("Rephrasing question using LLM")
         rephrased_question = self.rephrase_question(question)
         
         relevant_chunks = self.retrieve_relevant_chunks(rephrased_question)
         
-        # Retrieve chunk texts
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        chunk_texts = []
-        for chunk_id, _ in relevant_chunks:
-            cursor.execute("SELECT vector FROM embeddings WHERE id=?", (chunk_id,))
-            result = cursor.fetchone()
-            if result:
-                chunk_texts.append(result[0].decode("utf-8"))
-        conn.close()
+        # Extract text directly
+        chunk_texts = [chunk[1] for chunk in relevant_chunks]
         
         prompt = self.__create_prompt(rephrased_question, chunk_texts)
         return self.generate_text(prompt)
 
-    def __create_prompt(self, question, context_chunks):
-        context = "\n\n".join(context_chunks)
-        return f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
-    def rephrase_question(self, question: str) -> str:
-        response = self.model.generate_content(f"Rephrase the following question for clarity: {question}")
-        return response.text.strip()
+import os
 
-    def generate_text(self, prompt: str) -> str:
-        response = self.model.generate_content(prompt)
-        return response.text.strip()
+# Initialize Tools and RAG
+tools = Tools(chunk_size=500, overlap=100)
+rag = RAG(tools)
+
+# Define file path and document name
+file_path = "/Users/flaviogualtieri/Downloads/a_brief_overview_of_the_civil_war_from_the_perspective_of_genesee_county3.pdf"  # Replace with actual file path
+document_name = os.path.basename(file_path)
+
+# Process the PDF and store chunks
+rag.process_pdf(file_path, document_name)
+
+# Define question
+question = "What made the commencement of hostilities such a risk for the South?"  # Replace with actual question
+
+# Generate response
+response = rag.generate_answer(question)
+
+# Print response
+print(response)

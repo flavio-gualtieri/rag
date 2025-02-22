@@ -25,7 +25,7 @@ class Tools:
         self.table_ref = self.__get_table_ref()
 
 
-    def __setup_logger(self):
+    def __setup_logger(self) -> logging.Logger:
         logger = logging.getLogger("udf_logger")
         return logger
 
@@ -34,7 +34,7 @@ class Tools:
         return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
 
 
-    def pdf_reader(self, file_path: str) -> Tuple[Optional[str], Optional[List[int]]]:
+    def pdf_reader(self, file_path: str) -> tuple[str | None, list[int] | None]:
         self.logger.info(f"Opening {file_path}.")
 
         try:
@@ -114,29 +114,3 @@ class Tools:
             print(f"Failed to insert rows: {errors}")
         else:
             print(f"Successfully inserted {len(rows)} rows into BigQuery.")
-
-
-""" import os
-
-# Define file path (replace 'path' with your actual PDF file path)
-file_path = "/Users/flaviogualtieri/Downloads/test1.pdf"
-document_name = os.path.basename(file_path)
-
-# Initialize the Tools object
-tools = Tools(chunk_size=500, overlap=100)
-
-# Step 1: Read the PDF
-text, page_breaks = tools.pdf_reader(file_path)
-if text is None:
-    print("Failed to extract text from PDF.")
-    exit()
-
-# Step 2: Chunk the text
-df_chunks = tools.text_chunker(text, document_name)
-if df_chunks.empty:
-    print("Failed to chunk text.")
-    exit()
-
-# Step 3: Push to BigQuery
-tools.push_df_to_db(df_chunks, document_name)
- """
