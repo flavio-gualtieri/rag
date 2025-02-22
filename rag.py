@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from tools import Tools  # Assuming the Tools class handles PDF reading, chunking, and embedding storage
 import google.generativeai as genai
 import json
+import pandas as pd
 
 class RAG:
     def __init__(self, tools: Tools, chunks=20, window=10):
@@ -31,11 +32,23 @@ class RAG:
                 if line.startswith("GEMINI_API_KEY="):
                     return line.strip().split("=")[1]
 
-    def process_pdf(self, file_path: str, document_name: str):
-        text, _ = self.tools.pdf_reader(file_path)
+    def process_pdf(self, file_path: str, document_name: str) -> pd.DataFrame:
+        try:
+            text, _ = self.tools.pdf_reader(file_path)
+            self.logger.info("Extracted text")
+        except Exception as e:
+            self.logger.warning(f"Failed to obtain text from pdf: {e}")
         if text:
-            chunk_df = self.tools.text_chunker(text)
-            self.tools.push_df_to_db(chunk_df, document_name)
+            try:
+                chunk_df = self.tools.text_chunker(text)
+                self.logger.info("Chunked and embedded")
+            except Exception as e:
+                self.logger.warning(f"Failed to chunk and embed:{e}")
+            try:
+                self.tools.push_df_to_db(chunk_df, document_name)
+                self.logger.info("Pushed to df")
+            except Exception as e:
+                self.logger.warning(f"Failed to push to db: {e}")
             return chunk_df
         return None
 

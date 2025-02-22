@@ -22,6 +22,7 @@ class Tools:
         self.client = bigquery.Client()
         self.embedder = SentenceTransformer(embedding_model)
         self.logger = self.__setup_logger()
+        self.table_ref = self.__get_table_ref()
 
 
     def __setup_logger(self):
@@ -29,8 +30,7 @@ class Tools:
         return logger
 
     
-    def get_table_ref(self):
-        """Returns the full BigQuery table reference."""
+    def __get_table_ref(self) -> str:
         return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
 
 
@@ -75,7 +75,7 @@ class Tools:
         return text, page_breaks
 
 
-    def text_chunker(self, text: str) -> pd.DataFrame:
+    def text_chunker(self, text: str, document_name: str) -> pd.DataFrame:
         self.logger.info("Chunking text.")
         text = re.sub(r"\s+", " ", text).strip()
 
@@ -91,42 +91,26 @@ class Tools:
         df = pd.DataFrame({
             "uuid": [str(uuid.uuid4()) for _ in range(len(chunks))],
             "chunk": chunks,
-            "embedding": embeddings
+            "embedding": embeddings,
+            "document_name": [document_name] * len(chunks)
         })
 
         return df
 
 
     def push_df_to_db(self, df: pd.DataFrame, document_name: str):
-        """Stores document chunks and embeddings in BigQuery."""
-        table_ref = self.get_table_ref()
-
         rows = [
             {
                 "uuid": row["uuid"],
                 "chunk": row["chunk"],
                 "vector": json.dumps(row["embedding"]),  # Store embeddings as JSON
-                "document_name": document_name  # New field
+                "document_name": row[document_name]  # New field
             }
             for _, row in df.iterrows()
         ]
 
-        errors = self.client.insert_rows_json(table_ref, rows)
+        errors = self.client.insert_rows_json(self.table_ref, rows)
         if errors:
             print(f"Failed to insert rows: {errors}")
         else:
             print(f"Successfully inserted {len(rows)} rows into BigQuery.")
-
-
-
-# Example usage
-tools = Tools(chunk_size=800, overlap=100)
-
-pdf_text, _ = tools.pdf_reader("/Users/flaviogualtieri/Desktop/example/introduciton_to_python-1.pdf")
-
-if pdf_text:
-    chunk_df = tools.text_chunker(pdf_text)
-    chunk_df.to_excel("/Users/flaviogualtieri/Desktop/example/output.xlsx", index=False)
-
-
-
