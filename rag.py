@@ -54,11 +54,19 @@ class RAG:
 
 
     def process_pdf(self, file_path: str, document_name: str) -> pd.DataFrame | None:
+
         try:
+            # Check if document already exists in the database
+            if self.tools.document_exists(document_name):
+                self.logger.info(f"Document '{document_name}' already exists in the database. Skipping chunking.")
+                return None  # No need to process the document again
+            
             text, _ = self.tools.pdf_reader(file_path)
             self.logger.info("Extracted text")
         except Exception as e:
             self.logger.warning(f"Failed to obtain text from pdf: {e}")
+            return None
+
         if text:
             try:
                 chunk_df = self.tools.text_chunker(text, document_name)
@@ -74,17 +82,16 @@ class RAG:
         return None
 
 
-    def retrieve_relevant_chunks(self, question: str, top_k: int = 5, document_name: str | None = None) -> list[tuple[str, str, float]]:
+    def retrieve_relevant_chunks(self, question: str, document_name: str, top_k: int = 5) -> list[tuple[str, str, float]]:
         question_vector = self.tools.embedder.encode([question])[0]
 
         # Query BigQuery for stored document chunks
         try:
             query = f"""
-            SELECT UUID, CHUNK, EMBEDDING, DOCUMENT_NAME
+            SELECT UUID, CHUNK, EMBEDDING
             FROM `{self.tools.table_ref}`
+            WHERE DOCUMENT_NAME = '{document_name}'
             """
-            if document_name:
-                query += f" WHERE DOCUMENT_NAME = '{document_name}'"
 
             results = self.client.query(query).result()
             self.logger.info("Downloaded data")
@@ -140,11 +147,11 @@ class RAG:
         return response.text.strip()
 
 
-    def generate_answer(self, question: str) -> str:
+    def generate_answer(self, question: str, document_name: str) -> str:
         self.logger.info("Rephrasing question using LLM")
         rephrased_question = self.rephrase_question(question)
         
-        relevant_chunks = self.retrieve_relevant_chunks(rephrased_question)
+        relevant_chunks = self.retrieve_relevant_chunks(rephrased_question, document_name)
         
         # Extract text directly
         chunk_texts = [chunk[1] for chunk in relevant_chunks]
@@ -160,17 +167,17 @@ tools = Tools(chunk_size=500, overlap=100)
 rag = RAG(tools)
 
 # Define file path and document name
-file_path = "/Users/flaviogualtieri/Downloads/a_brief_overview_of_the_civil_war_from_the_perspective_of_genesee_county3.pdf"  # Replace with actual file path
+file_path = "/Users/flaviogualtieri/Downloads/fastfacts-what-is-climate-change2.pdf"  # Replace with actual file path
 document_name = os.path.basename(file_path)
 
 # Process the PDF and store chunks
 rag.process_pdf(file_path, document_name)
 
 # Define question
-question = "What made the commencement of hostilities such a risk for the South?"  # Replace with actual question
+question = "What greenhouse gasses are names in this text?"  # Replace with actual question
 
 # Generate response
-response = rag.generate_answer(question)
+response = rag.generate_answer(question, document_name)
 
 # Print response
 print(response)

@@ -29,9 +29,30 @@ class Tools:
         logger = logging.getLogger("udf_logger")
         return logger
 
-    
+
     def __get_table_ref(self) -> str:
         return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
+
+    def document_exists(self, document_name: str) -> bool:
+        query = f"""
+        SELECT EXISTS(
+            SELECT 1 FROM `{self.table_ref}` 
+            WHERE DOCUMENT_NAME = @document_name
+        ) AS exists_flag
+        """
+        try:
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("document_name", "STRING", document_name)
+                ]
+            )
+            result = self.client.query(query, job_config=job_config).result()
+            for row in result:
+                return row["exists_flag"]
+            return False  # In case the query unexpectedly returns nothing
+        except Exception as e:
+            self.logger.warning(f"Failed to check document existence: {e}")
+            return False
 
 
     def pdf_reader(self, file_path: str) -> tuple[str | None, list[int] | None]:
@@ -79,7 +100,7 @@ class Tools:
         self.logger.info("Chunking text.")
         text = re.sub(r"\s+", " ", text).strip()
 
-        splitter = CharacterTextSplitter(separator=" ", chunk_size=self.chunk_size, chunk_overlap=self.overlap)
+        splitter = CharacterTextSplitter(separator = " ", chunk_size=self.chunk_size, chunk_overlap=self.overlap)
         chunks = splitter.split_text(text)
 
         self.logger.info(f"Text split into {len(chunks)} chunks.")
