@@ -54,7 +54,6 @@ class RAG:
 
 
     def process_pdf(self, file_path: str, document_name: str) -> pd.DataFrame | None:
-
         try:
             # Check if document already exists in the database
             if self.tools.document_exists(document_name):
@@ -159,7 +158,7 @@ class RAG:
         prompt = self.__create_prompt(rephrased_question, chunk_texts)
         return self.generate_text(prompt)
 
-
+""" 
 import os
 
 # Initialize Tools and RAG
@@ -180,4 +179,4 @@ question = "What greenhouse gasses are names in this text?"  # Replace with actu
 response = rag.generate_answer(question, document_name)
 
 # Print response
-print(response)
+print(response) """

@@ -14,16 +14,19 @@ import google.generativeai as genai
 
 class Tools:
     def __init__(self, chunk_size: int, overlap: int, embedding_model: str = "all-MiniLM-L6-v2", 
-                 project_id: str = "flaviosrag", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks"):
+                 project_id: str = "flaviosrag", dataset_id: str = "document_chunks", table_id: str = "vectorized_chunks",
+                 feedback_table_id: str = "feedback_table"):
         self.gemini_api_key = self.__get_api_key()
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.project_id = project_id
         self.dataset_id = dataset_id
         self.table_id = table_id
+        self.feedback_table_id = feedback_table_id
         self.client = bigquery.Client()
         self.logger = self.__setup_logger()
-        self.table_ref = self.__get_table_ref()
+        self.table_ref = self.__get_table_ref(self.project_id, self.dataset_id, self.table_id)
+        self.feedback_table_ref = self.__get_table_ref(self.project_id, self.dataset_id, self.feedback_table_id)
 
         genai.configure(api_key = self.gemini_api_key)
 
@@ -33,8 +36,8 @@ class Tools:
         return logger
 
 
-    def __get_table_ref(self) -> str:
-        return f"{self.project_id}.{self.dataset_id}.{self.table_id}"
+    def __get_table_ref(self, project_id, dataset_id, table_id) -> str:
+        return f"{project_id}.{dataset_id}.{table_id}"
 
 
     def __get_api_key(self, filepath: str = "config.txt") -> str:
@@ -46,10 +49,10 @@ class Tools:
 
     def document_exists(self, document_name: str) -> bool:
         query = f"""
-        SELECT EXISTS(
+        SELECT IF(EXISTS(
             SELECT 1 FROM `{self.table_ref}` 
             WHERE DOCUMENT_NAME = @document_name
-        ) AS exists_flag
+        ), TRUE, FALSE) AS exists_flag
         """
         try:
             job_config = bigquery.QueryJobConfig(
@@ -58,9 +61,9 @@ class Tools:
                 ]
             )
             result = self.client.query(query, job_config=job_config).result()
-            for row in result:
-                return row["exists_flag"]
-            return False  # In case the query unexpectedly returns nothing
+            
+            row = next(result, None)  # Use next() to avoid unnecessary looping
+            return row["exists_flag"] if row else False  # Ensure a return value even if no rows
         except Exception as e:
             self.logger.warning(f"Failed to check document existence: {e}")
             return False
@@ -153,4 +156,21 @@ class Tools:
         if errors:
             print(f"Failed to insert rows: {errors}")
         else:
-            print(f"Successfully inserted {len(rows)} rows into BigQuery.")
+            print(f"Successfully inserted {len(rows)} rows into BigQuery")
+
+    def push_feedback(self, df: pd.DataFrame):
+        rows = [
+            {
+                "RATING": row["rating"],
+                "NOTES": row["notes"],
+                "QUESTION": row["question"],
+                "ANSWER": row["answer"],
+                "DOCUMENT_NAME": row["document_name"]
+            }
+            for _, row in df.iterrows()
+        ]
+        errors = self.client.insert_rows_json(self.feedback_table_ref, rows)
+        if errors:
+            print(f"Failed to insert rows: {errors} into feedback")
+        else:
+            print(f"Successfully inserted {len(rows)} rows into BigQuery feedback")
