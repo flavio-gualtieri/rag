@@ -132,6 +132,19 @@ class Tools:
             return [[] for _ in chunk_texts]
 
 
+    def get_embedding_batch(self, chunk_texts: List[str]) -> List[List[float]]:
+        try:
+            # Hypothetical batch call; adjust accordingly for the actual endpoint
+            response = genai.embed_content_batch(
+                model="models/embedding-001", 
+                contents=chunk_texts
+            )
+            return [r["embedding"] for r in response["embeddings"]]
+        except Exception as e:
+            self.logger.error(f"Failed to fetch batch embeddings: {e}")
+            return [[] for _ in chunk_texts]
+
+
     def text_chunker(self, text: str, document_name: str) -> pd.DataFrame:
         self.logger.info("Chunking text")
         text = re.sub(r"\s+", " ", text).strip()
