@@ -96,4 +96,9 @@ if "last_answer" in st.session_state:
 
                 rag.tools.push_feedback(st.session_state["feedback_df"])
 
+                # Clear feedback form fields
+                st.session_state["rating"] = None  # Reset rating
+                st.session_state["notes"] = ""  # Reset text area
+
                 st.success("Thank you for your feedback! It has been recorded.")
+
