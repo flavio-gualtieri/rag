@@ -1,0 +1,9 @@
+google-cloud-bigquery
+google-generativeai
+streamlit
+PyPDF2
+sentence-transformers
+pandas
+numpy
+langchain
+logging
