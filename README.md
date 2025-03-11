@@ -1,4 +1,3 @@
-```
 # Chat with Your PDF (RAG System)
 
 ## Overview
